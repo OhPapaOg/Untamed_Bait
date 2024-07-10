@@ -9,11 +9,10 @@ local baitPlaced = false
 local noAnimalTimeout = nil
 local baitPrompt = nil
 local animalBlip = nil
-local baitPickupPrompt = nil
-local bearTrapProp = nil
 local baitItemName = nil
 local spawnAnimalTimer = nil
 local trapDeactivated = false
+local canPlaceBait = true
 
 -- List of known animal models
 local animalModels = {
@@ -337,7 +336,6 @@ local animalModels = {
  }
 
 -- Prompts
-
 function SetupPrompt(promptType)
     Citizen.CreateThread(function()
         local str = Config.BearTrap.FreePrompt
@@ -366,36 +364,7 @@ function HidePrompt(prompt)
     end
 end
 
-function SetupPickupPrompt()
-    Citizen.CreateThread(function()
-        local str = Config.Locale.pickUpBait
-        baitPickupPrompt = PromptRegisterBegin()
-        PromptSetControlAction(baitPickupPrompt, 0xE8342FF2) -- INPUT_CONTEXT (E key)
-        str = CreateVarString(10, 'LITERAL_STRING', str)
-        PromptSetText(baitPickupPrompt, str)
-        PromptSetEnabled(baitPickupPrompt, false)
-        PromptSetVisible(baitPickupPrompt, false)
-        PromptSetHoldMode(baitPickupPrompt, true)
-        PromptRegisterEnd(baitPickupPrompt)
-    end)
-end
-
-function ShowPickupPrompt()
-    if baitPickupPrompt then
-        PromptSetEnabled(baitPickupPrompt, true)
-        PromptSetVisible(baitPickupPrompt, true)
-    end
-end
-
-function HidePickupPrompt()
-    if baitPickupPrompt then
-        PromptSetEnabled(baitPickupPrompt, false)
-        PromptSetVisible(baitPickupPrompt, false)
-    end
-end
-
 -- Functions
-
 function IsInBlacklistZone(coords)
     for _, zone in pairs(Config.BlacklistZones) do
         local distance = #(coords - vector3(zone.x, zone.y, zone.z))
@@ -423,6 +392,11 @@ function DeleteBaitProp()
     if DoesEntityExist(baitProp) then
         DeleteEntity(baitProp)
         baitProp = nil
+        baitPlaced = false
+        if spawnAnimalTimer then
+            Citizen.ClearTimeout(spawnAnimalTimer)
+            spawnAnimalTimer = nil
+        end
     end
 end
 
@@ -484,6 +458,8 @@ function LoadAnimDict(dict)
         Wait(50)
     end
 end
+
+--EVENTS
 
 -- Event to handle bear trap use
 RegisterNetEvent('untamed_bait:useBearTrap')
@@ -567,7 +543,6 @@ end)
 
 Citizen.CreateThread(function()
     SetupPrompt("freeTrap")
-    SetupPickupPrompt()
     while true do
         Citizen.Wait(0) -- Reduced wait time for prompt interaction
         local playerPed = PlayerPedId()
@@ -591,22 +566,14 @@ Citizen.CreateThread(function()
             end
         end
 
-        -- Pickup bait
-        if DoesEntityExist(baitProp) then
-            local distance = #(playerCoords - GetEntityCoords(baitProp))
-            if distance < 2.0 then
-                ShowPickupPrompt()
-                if PromptHasHoldModeCompleted(baitPickupPrompt) then
-                    DeleteBaitProp()
-                    if spawnAnimalTimer then
-                        Citizen.ClearTimeout(spawnAnimalTimer)
-                        spawnAnimalTimer = nil
-                    end
-                    TriggerServerEvent('untamed_bait:returnBait', baitItemName)
-                    HidePickupPrompt()
+        -- Handle animal state
+        if DoesEntityExist(spawnedAnimal) then
+            if IsEntityDead(spawnedAnimal) then
+                if DoesBlipExist(animalBlip) then
+                    RemoveBlip(animalBlip)
                 end
-            else
-                HidePickupPrompt()
+                DeleteBaitProp()
+                spawnedAnimal = nil
             end
         end
     end
@@ -614,6 +581,12 @@ end)
 
 RegisterNetEvent('untamed_bait:useBait')
 AddEventHandler('untamed_bait:useBait', function(itemName)
+     if not canPlaceBait then
+        VORPcore.NotifyTip(Config.Locale.alreadyHaveBait, 4000)
+        TriggerServerEvent('untamed_bait:returnBait', itemName) -- Return the bait item
+        return
+    end
+
     baitItemName = itemName
     local playerPed = PlayerPedId()
     local coords = GetEntityCoords(playerPed)
@@ -625,47 +598,79 @@ AddEventHandler('untamed_bait:useBait', function(itemName)
         return
     end
 
-    PlayInspectingAnimation()
+    canPlaceBait = false  -- Set to false to prevent placing another bait
 
-    local propName = Config.BaitItems[itemName].prop
-    RequestModel(propName)
-    while not HasModelLoaded(propName) do
-        Citizen.Wait(0)
+    -- Check the config for animation type
+    if Config.BaitItems[itemName].useInspectAnim then
+        PlayInspectingAnimation()
+    else
+        TaskStartScenarioInPlace(playerPed, "WORLD_PLAYER_PLACE_BAIT_NORMAL", 0, true)
+        Citizen.Wait(Config.BaitUseTime)
+        ClearPedTasks(playerPed)
     end
 
-    baitProp = CreateObject(GetHashKey(propName), coords.x, coords.y, coords.z, true, true, false)
-    PlaceObjectOnGroundProperly(baitProp)
-    baitPlaced = true
+    local baitCoords = coords
 
-    if Config.Debug then print('Bait placed with prop: ' .. propName) end
-    VORPcore.NotifyTip(Config.Locale.baitPlaced, 4000)
+    -- Check the config for placing the prop
+    if Config.BaitItems[itemName].placeProp then
+        local propName = Config.BaitItems[itemName].prop
+        RequestModel(propName)
+        while not HasModelLoaded(propName) do
+            Citizen.Wait(0)
+        end
+
+        -- Delete any existing bait prop
+        if DoesEntityExist(baitProp) then
+            DeleteBaitProp()
+        end
+
+        baitProp = CreateObject(GetHashKey(propName), coords.x, coords.y, coords.z, true, true, false)
+        PlaceObjectOnGroundProperly(baitProp)
+        baitPlaced = true
+
+        if Config.Debug then print('Bait placed with prop: ' .. propName) end
+        VORPcore.NotifyTip(Config.Locale.baitPlaced, 4000)
+
+        baitCoords = GetEntityCoords(baitProp)
+    else
+        -- If prop is not placed, use player coords as bait coords
+        baitCoords = coords
+    end
 
     local noAnimalChance = Config.BaitItems[itemName].noAnimalChance
     if math.random() < noAnimalChance then
         noAnimalTimeout = SetTimeout(Config.NoAnimalSpawnNotificationTime, function()
             VORPcore.NotifyTip(Config.Locale.noAnimal, 4000)
+            canPlaceBait = true  -- Allow placing another bait if no animal is attracted
+            DeleteBaitProp() -- Ensure the prop is deleted if no animal is attracted
         end)
     else
         spawnAnimalTimer = Citizen.SetTimeout(Config.BaitItems[itemName].waitBeforeSpawn, function()
-            if baitProp then -- Check if baitProp still exists before spawning the animal
-                TriggerServerEvent('untamed_bait:spawnAnimal', itemName, coords)
+            if baitProp or not Config.BaitItems[itemName].placeProp then
+                TriggerServerEvent('untamed_bait:spawnAnimal', itemName, baitCoords)
+                baitPlaced = false  -- Prevent bait from being picked up once the animal spawns
             end
         end)
     end
 end)
 
 RegisterNetEvent('untamed_bait:spawnAnimalClient')
-AddEventHandler('untamed_bait:spawnAnimalClient', function(animal, baitCoords)
+AddEventHandler('untamed_bait:spawnAnimalClient', function(animal, baitCoords, playerSource)
     if noAnimalTimeout then
         ClearTimeout(noAnimalTimeout)
         noAnimalTimeout = nil
     end
 
-    local spawnCoords = {
-        x = baitCoords.x + math.random(-Config.SpawnDistance, Config.SpawnDistance),
-        y = baitCoords.y + math.random(-Config.SpawnDistance, Config.SpawnDistance),
-        z = baitCoords.z
-    }
+    canPlaceBait = true  -- Allow placing another bait once the animal spawns
+    
+    local spawnDistance = Config.SpawnDistance
+    local spawnCoords = vector3(
+        baitCoords.x + math.random(-spawnDistance, spawnDistance),
+        baitCoords.y + math.random(-spawnDistance, spawnDistance),
+        baitCoords.z
+    )
+
+    if Config.Debug then print("Spawning animal at coords: ", spawnCoords) end
 
     RequestModel(animal)
     while not HasModelLoaded(animal) do
@@ -674,29 +679,38 @@ AddEventHandler('untamed_bait:spawnAnimalClient', function(animal, baitCoords)
 
     local found, groundZ = GetGroundZFor_3dCoord(spawnCoords.x, spawnCoords.y, spawnCoords.z, 0)
     if found then
-        spawnCoords.z = groundZ
+        spawnCoords = vector3(spawnCoords.x, spawnCoords.y, groundZ)
     end
 
-    spawnedAnimal = CreatePed(animal, spawnCoords.x, spawnCoords.y, spawnCoords.z, 0.0, false, false, false, false)
+    local spawnedAnimal = CreatePed(animal, spawnCoords.x, spawnCoords.y, spawnCoords.z, 0.0, true, false, false, false)
     SetRandomOutfitVariation(spawnedAnimal, true)
-    animalBlip = CreateAnimalBlip(spawnedAnimal)
+    NetworkRegisterEntityAsNetworked(spawnedAnimal)
+    SetNetworkIdExistsOnAllMachines(NetworkGetNetworkIdFromEntity(spawnedAnimal), true)
 
-    if Config.Debug then print('Animal created with model: ' .. animal) end
-    VORPcore.NotifyTip(Config.Locale.animalApproaching, 4000)
+    if Config.Debug then print("Animal spawned for player: ", GetPlayerServerId(PlayerId())) end
 
-    TaskGoToCoordAnyMeans(spawnedAnimal, baitCoords.x, baitCoords.y, baitCoords.z, 1.0, 0, 0, 786603, 0xbf800000)
+    if playerSource == GetPlayerServerId(PlayerId()) then
+        VORPcore.NotifyTip(Config.Locale.animalApproaching, 4000)
+        animalBlip = CreateAnimalBlip(spawnedAnimal)
+        if Config.Debug then print("Animal blip created for player: ", GetPlayerServerId(PlayerId())) end
+    end
+
+    TaskGoStraightToCoord(spawnedAnimal, baitCoords.x, baitCoords.y, baitCoords.z, 1.0, -1, 0.0, 0.0)
 
     while #(GetEntityCoords(spawnedAnimal) - baitCoords) > 1.0 do
         Citizen.Wait(500)
     end
 
     ClearPedTasks(spawnedAnimal)
-    if Config.Debug then print('Animal reached the bait') end
+    if playerSource == GetPlayerServerId(PlayerId()) then
+        VORPcore.NotifyTip(Config.Locale.animalReachedBait, 4000)
+        if Config.Debug then print("Animal reached the bait for player: ", GetPlayerServerId(PlayerId())) end
+    end
 
     Citizen.Wait(Config.BaitStayTime)
 
     local playerPed = PlayerPedId()
-    if #(GetEntityCoords(spawnedAnimal) - GetEntityCoords(playerPed)) < 20.0 then
+    if #(GetEntityCoords(spawnedAnimal) - GetEntityCoords(playerPed)) < 10.0 then
         TaskReactAndFleePed(spawnedAnimal, playerPed)
         if Config.Debug then print('Animal spotted player and is fleeing') end
     else
@@ -711,7 +725,6 @@ AddEventHandler('onResourceStop', function(resourceName)
     if GetCurrentResourceName() == resourceName then
         DeleteBearTrapProp()
         HidePrompt(freeTrapPrompt)
-        HidePickupPrompt()
         DeleteBaitProp()
         if DoesEntityExist(spawnedAnimal) then
             DeleteEntity(spawnedAnimal)
