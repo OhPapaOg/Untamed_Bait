@@ -12,12 +12,9 @@ AddEventHandler('untamed_bait:spawnAnimal', function(itemName, baitCoords)
     local src = source
     local animals = Config.BaitItems[itemName].animals
     local animal = animals[math.random(#animals)]
-    local waitBeforeSpawn = Config.BaitItems[itemName].waitBeforeSpawn
-    if Config.Debug then print('Triggering client event to spawn animal: ' .. animal) end
-    TriggerClientEvent('untamed_bait:spawnAnimalClient', src, animal, baitCoords, waitBeforeSpawn)
+    if Config.Debug then print('Broadcasting animal spawn from server') end
+    TriggerClientEvent('untamed_bait:spawnAnimalClient', -1, animal, baitCoords, src)
 end)
-
-
 
 Citizen.CreateThread(function()
     for itemName, _ in pairs(Config.BaitItems) do
