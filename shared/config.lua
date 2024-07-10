@@ -1,6 +1,6 @@
 Config = {}
 
-Config.Debug = true  -- Set to true to enable debug prints
+Config.Debug = false  -- Set to true to enable debug prints
 
 Config.BaitItems = { -- You can make certain bait be more effective than others. 
     ["grizzly_bait"] = { -- item in your db
