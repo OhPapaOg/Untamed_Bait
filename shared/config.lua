@@ -4,10 +4,12 @@ Config.Debug = false  -- Set to true to enable debug prints
 
 Config.BaitItems = { -- You can make certain bait be more effective than others. 
     ["grizzly_bait"] = { -- item in your db
-        prop = "s_grizzlybait01x",
+      prop = "s_grizzlybait01x",
         animals = {"a_c_bear_01", "a_c_buffalo_01"}, -- I don't suggest wolves, they behave weirdly.
         waitBeforeSpawn = 15000,  -- Time in milliseconds to wait before the animal spawns
-        noAnimalChance = 0.25    -- Chance that no animal will spawn (0.25 means 25%)
+        noAnimalChance = 0.25,   -- Chance that no animal will spawn (0.25 means 25%)
+        placeProp = true,        -- Options: true = creates object | false = does not create object
+        useInspectAnim = true,   -- Options: true = uses inspect animation | false = uses "WORLD_PLAYER_PLACE_BAIT_NORMAL" scenario.
     },
     -- Add more bait items here
 }
@@ -27,7 +29,6 @@ Config.BearTrap = { -- Trap instantly kills animals
 
 Config.SpawnDistance = 80.0  -- Distance at which animals spawn far from the bait
 Config.BaitUseTime = 3000     -- Time in milliseconds it takes to place the bait
-Config.AnimalApproachTime = 5000  -- Time in milliseconds before the animal starts moving towards the bait
 Config.BaitStayTime = 10000   -- Time in milliseconds the animal stays at the bait if not alerted
 Config.NoAnimalSpawnNotificationTime = 15000 -- Time in milliseconds to wait before notifying no animal spawned
 
@@ -35,8 +36,9 @@ Config.Locale = {
     baitRestricted = "You cannot use bait in this area.",
     baitPlaced = "Bait placed successfully.",
     animalApproaching = "An animal has been attracted to the bait.",
+    animalReachedBait = "The animal has reached the bait.",
     noAnimal = "No animal seems to be approaching.",
-    pickUpBait = "Pick Up",
+    alreadyHaveBait = "You already have a bait down",
     returnBait = "You picked up the bait and got it back.",
     trapShot = "The trap has been deactivated by shooting!",
 }
