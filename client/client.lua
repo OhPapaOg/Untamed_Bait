@@ -660,9 +660,7 @@ AddEventHandler('untamed_bait:spawnAnimalClient', function(animal, baitCoords, p
         ClearTimeout(noAnimalTimeout)
         noAnimalTimeout = nil
     end
-
-    canPlaceBait = true  -- Allow placing another bait once the animal spawns
-    
+    canPlaceBait = true  -- Allow placing another bait once the animal spawn
     local spawnDistance = Config.SpawnDistance
     local spawnCoords = vector3(
         baitCoords.x + math.random(-spawnDistance, spawnDistance),
@@ -686,6 +684,7 @@ AddEventHandler('untamed_bait:spawnAnimalClient', function(animal, baitCoords, p
     SetRandomOutfitVariation(spawnedAnimal, true)
     NetworkRegisterEntityAsNetworked(spawnedAnimal)
     SetNetworkIdExistsOnAllMachines(NetworkGetNetworkIdFromEntity(spawnedAnimal), true)
+    SetEntityAsMissionEntity(spawnedAnimal, true, true)
 
     if Config.Debug then print("Animal spawned for player: ", GetPlayerServerId(PlayerId())) end
 
