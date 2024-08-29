@@ -335,6 +335,7 @@ local animalModels = {
       -- Add other animal models as needed
  }
 
+
 -- Prompts
 function SetupPrompt(promptType)
     Citizen.CreateThread(function()
@@ -459,7 +460,7 @@ function LoadAnimDict(dict)
     end
 end
 
---EVENTS
+-- EVENTS
 
 -- Event to handle bear trap use
 RegisterNetEvent('untamed_bait:useBearTrap')
@@ -581,7 +582,7 @@ end)
 
 RegisterNetEvent('untamed_bait:useBait')
 AddEventHandler('untamed_bait:useBait', function(itemName)
-     if not canPlaceBait then
+    if not canPlaceBait then
         VORPcore.NotifyTip(Config.Locale.alreadyHaveBait, 4000)
         TriggerServerEvent('untamed_bait:returnBait', itemName) -- Return the bait item
         return
@@ -680,7 +681,7 @@ AddEventHandler('untamed_bait:spawnAnimalClient', function(animal, baitCoords, p
         spawnCoords = vector3(spawnCoords.x, spawnCoords.y, groundZ)
     end
 
-    local spawnedAnimal = CreatePed(animal, spawnCoords.x, spawnCoords.y, spawnCoords.z, 0.0, true, false, false, false)
+    spawnedAnimal = CreatePed(animal, spawnCoords.x, spawnCoords.y, spawnCoords.z, 0.0, true, false, false, false)
     SetRandomOutfitVariation(spawnedAnimal, true)
     NetworkRegisterEntityAsNetworked(spawnedAnimal)
     SetNetworkIdExistsOnAllMachines(NetworkGetNetworkIdFromEntity(spawnedAnimal), true)
