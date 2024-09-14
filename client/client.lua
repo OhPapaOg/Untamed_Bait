@@ -5,6 +5,7 @@ local trappedNPC = nil  -- Variable to track if an NPC is trapped
 
 local baitProp = nil
 local spawnedAnimal = nil
+local animalNetId = nil
 local baitPlaced = false
 local noAnimalTimeout = nil
 local baitPrompt = nil
@@ -657,11 +658,17 @@ end)
 
 RegisterNetEvent('untamed_bait:spawnAnimalClient')
 AddEventHandler('untamed_bait:spawnAnimalClient', function(animal, baitCoords, playerSource)
+    if spawnedAnimal then
+        return  -- Animal already spawned, ignore further spawns
+    end
+
     if noAnimalTimeout then
         ClearTimeout(noAnimalTimeout)
         noAnimalTimeout = nil
     end
-    canPlaceBait = true  -- Allow placing another bait once the animal spawn
+
+    canPlaceBait = true  -- Allow placing another bait once the animal spawns
+
     local spawnDistance = Config.SpawnDistance
     local spawnCoords = vector3(
         baitCoords.x + math.random(-spawnDistance, spawnDistance),
@@ -671,6 +678,7 @@ AddEventHandler('untamed_bait:spawnAnimalClient', function(animal, baitCoords, p
 
     if Config.Debug then print("Spawning animal at coords: ", spawnCoords) end
 
+    -- Load and spawn the animal
     RequestModel(animal)
     while not HasModelLoaded(animal) do
         Citizen.Wait(0)
@@ -681,10 +689,12 @@ AddEventHandler('untamed_bait:spawnAnimalClient', function(animal, baitCoords, p
         spawnCoords = vector3(spawnCoords.x, spawnCoords.y, groundZ)
     end
 
-    spawnedAnimal = CreatePed(animal, spawnCoords.x, spawnCoords.y, spawnCoords.z, 0.0, true, false, false, false)
+    -- Create and network the animal
+    spawnedAnimal = CreatePed(animal, spawnCoords.x, spawnCoords.y, spawnCoords.z, 0.0, true, false, true, true)
     SetRandomOutfitVariation(spawnedAnimal, true)
     NetworkRegisterEntityAsNetworked(spawnedAnimal)
-    SetNetworkIdExistsOnAllMachines(NetworkGetNetworkIdFromEntity(spawnedAnimal), true)
+    local netId = NetworkGetNetworkIdFromEntity(spawnedAnimal)
+    SetNetworkIdExistsOnAllMachines(netId, true)
     SetEntityAsMissionEntity(spawnedAnimal, true, true)
 
     if Config.Debug then print("Animal spawned for player: ", GetPlayerServerId(PlayerId())) end
@@ -695,30 +705,52 @@ AddEventHandler('untamed_bait:spawnAnimalClient', function(animal, baitCoords, p
         if Config.Debug then print("Animal blip created for player: ", GetPlayerServerId(PlayerId())) end
     end
 
+    -- Task the animal to move towards the bait
     TaskGoStraightToCoord(spawnedAnimal, baitCoords.x, baitCoords.y, baitCoords.z, 1.0, -1, 0.0, 0.0)
 
-    while #(GetEntityCoords(spawnedAnimal) - baitCoords) > 1.0 do
-        Citizen.Wait(500)
-    end
+    -- Check if animal reaches the bait
+    Citizen.CreateThread(function()
+        local animalReached = false
+        local checkInterval = 500  -- Interval to check if the animal has reached the bait
+        local reachDistance = 1.5  -- Distance within which the animal is considered to have reached the bait
 
-    ClearPedTasks(spawnedAnimal)
-    if playerSource == GetPlayerServerId(PlayerId()) then
-        VORPcore.NotifyTip(Config.Locale.animalReachedBait, 4000)
-        if Config.Debug then print("Animal reached the bait for player: ", GetPlayerServerId(PlayerId())) end
-    end
+        while not animalReached do
+            Citizen.Wait(checkInterval)
+            if DoesEntityExist(spawnedAnimal) then
+                local animalCoords = GetEntityCoords(spawnedAnimal)
+                local distance = #(animalCoords - baitCoords)
 
-    Citizen.Wait(Config.BaitStayTime)
+                -- Check if the animal is close enough to the bait
+                if distance <= reachDistance then
+                    animalReached = true
+                    ClearPedTasks(spawnedAnimal)
 
-    local playerPed = PlayerPedId()
-    if #(GetEntityCoords(spawnedAnimal) - GetEntityCoords(playerPed)) < 10.0 then
-        TaskReactAndFleePed(spawnedAnimal, playerPed)
-        if Config.Debug then print('Animal spotted player and is fleeing') end
-    else
-        TaskWanderStandard(spawnedAnimal, 10.0, 10)
-        if Config.Debug then print('Animal is wandering off') end
-    end
+                    -- Notify the player who placed the bait
+                    if playerSource == GetPlayerServerId(PlayerId()) then
+                        Citizen.Wait(1000)  -- Optional delay to ensure the animal has actually arrived
+                        VORPcore.NotifyTip(Config.Locale.animalReachedBait, 4000)
+                        if Config.Debug then print("Animal reached the bait for player: ", GetPlayerServerId(PlayerId())) end
+                    end
+                end
+            else
+                break
+            end
+        end
 
-    DeleteBaitProp()
+        -- Wait for a set time before the animal reacts or wanders off
+        Citizen.Wait(Config.BaitStayTime)
+
+        local playerPed = PlayerPedId()
+        if #(GetEntityCoords(spawnedAnimal) - GetEntityCoords(playerPed)) < 10.0 then
+            TaskReactAndFleePed(spawnedAnimal, playerPed)
+            if Config.Debug then print('Animal spotted player and is fleeing') end
+        else
+            TaskWanderStandard(spawnedAnimal, 10.0, 10)
+            if Config.Debug then print('Animal is wandering off') end
+        end
+
+        DeleteBaitProp()
+    end)
 end)
 
 AddEventHandler('onResourceStop', function(resourceName)
